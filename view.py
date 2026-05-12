@@ -1,13 +1,13 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 import logging
-from model import FuelPrice, DataHandler, FuelPriceParseError
+from model import FuelPrice, DataHandler, FuelPriceParseError, CommandProcessor
 
 class MainWindow(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Лабораторная работа №3 – Цены на топливо")
-        self.geometry("700x500")
+        self.title("Лабораторная работа №4 – Цены на топливо + команды")
+        self.geometry("800x600")
         self.data_file = "data.txt"
         self.items = []
         self._setup_ui()
@@ -22,11 +22,12 @@ class MainWindow(tk.Tk):
             self.tree.column(col, width=200)
         self.tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        # Панель ввода
+        # Панель управления
         frame = tk.Frame(self)
         frame.pack(fill=tk.X, padx=5, pady=5)
+
         tk.Label(frame, text="Новый объект:").pack(side=tk.LEFT)
-        self.entry = tk.Entry(frame, width=50)
+        self.entry = tk.Entry(frame, width=40)
         self.entry.pack(side=tk.LEFT, padx=5)
         self.entry.bind("<Return>", lambda e: self._add_item())
 
@@ -35,7 +36,10 @@ class MainWindow(tk.Tk):
         del_btn = tk.Button(frame, text="Удалить", command=self._delete_item)
         del_btn.pack(side=tk.LEFT, padx=2)
 
-        # Статусная строка
+        cmd_btn = tk.Button(frame, text="Выполнить команды из файла", command=self._execute_commands)
+        cmd_btn.pack(side=tk.LEFT, padx=10)
+
+        # Статус-бар
         self.status_var = tk.StringVar()
         status_bar = tk.Label(self, textvariable=self.status_var, bd=1, relief=tk.SUNKEN, anchor=tk.W)
         status_bar.pack(side=tk.BOTTOM, fill=tk.X)
@@ -53,25 +57,18 @@ class MainWindow(tk.Tk):
         for row in self.tree.get_children():
             self.tree.delete(row)
         for item in self.items:
-            self.tree.insert("", tk.END, values=(
-                item.type,
-                item.date.strftime("%Y.%m.%d"),
-                f"{item.price:.2f}"
-            ))
+            self.tree.insert("", tk.END, values=(item.type, item.date.strftime("%Y.%m.%d"), f"{item.price:.2f}"))
 
     def _add_item(self):
         text = self.entry.get().strip()
         if not text:
-            messagebox.showwarning("Ввод", "Введите строку в формате:\n\"тип\" гггг.мм.дд цена")
+            messagebox.showwarning("Ввод", "Введите строку")
             return
-
         try:
             new_item = FuelPrice.from_string(text)
-            # Проверка на дубликат (опционально, но полезно)
+            # Проверка дубликата
             for it in self.items:
-                if (it.type == new_item.type and
-                    it.date == new_item.date and
-                    abs(it.price - new_item.price) < 0.0001):
+                if it.type == new_item.type and it.date == new_item.date and abs(it.price - new_item.price) < 0.0001:
                     messagebox.showwarning("Дубликат", "Такая запись уже существует")
                     return
             self.items.append(new_item)
@@ -80,7 +77,6 @@ class MainWindow(tk.Tk):
             self.entry.delete(0, tk.END)
             self._show_status(f"Добавлено: {new_item.type}")
         except FuelPriceParseError as e:
-            # Логируем ошибку и показываем сообщение
             logging.error(f"Ошибка добавления: {e} | Строка: {text}")
             messagebox.showerror("Ошибка формата", str(e))
 
@@ -94,6 +90,22 @@ class MainWindow(tk.Tk):
         self._save_data()
         self._refresh_table()
         self._show_status(f"Удалено: {deleted.type}")
+
+    def _execute_commands(self):
+        filename = filedialog.askopenfilename(
+            title="Выберите файл с командами",
+            filetypes=[("Текстовые файлы", "*.txt"), ("Все файлы", "*.*")]
+        )
+        if not filename:
+            return
+        try:
+            self.items = CommandProcessor.apply_commands(self.items, filename)
+            self._save_data()
+            self._refresh_table()
+            self._show_status(f"Команды из файла {filename} выполнены")
+        except Exception as e:
+            logging.error(f"Ошибка при выполнении команд: {e}")
+            messagebox.showerror("Ошибка", f"Не удалось выполнить команды:\n{e}")
 
     def _show_status(self, msg, timeout=3000):
         self.status_var.set(msg)
